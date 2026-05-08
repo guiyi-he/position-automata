@@ -1,0 +1,4 @@
+(coq.theory
+ (name PositionAutomata)
+ (package position-automata)
+ (theories Linden Warblre Ltac2))
