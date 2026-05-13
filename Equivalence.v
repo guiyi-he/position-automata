@@ -145,7 +145,9 @@ Section Equivalence.
     unfold equiv_certificate in Hcert.
     apply andb_true_iff in Hcert as [_ Hrel].
     unfold check_relation in Hrel.
-    eapply forallb_forall; eauto.
+    rewrite forallb_forall in Hrel.
+    apply Hrel in Hin as Hcheck.
+    exact Hcheck.
   Qed.
 
   Lemma checked_pair_same_final :
