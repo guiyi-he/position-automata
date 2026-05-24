@@ -1,4 +1,4 @@
-Require Import List Bool.
+From Stdlib Require Import List Bool.
 Import ListNotations.
 
 From PositionAutomata Require Import PositionAutomaton.

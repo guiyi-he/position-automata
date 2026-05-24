@@ -1,4 +1,4 @@
-Require Import List.
+From Stdlib Require Import List.
 Import ListNotations.
 
 (** Source regular expressions.

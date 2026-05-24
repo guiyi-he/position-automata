@@ -1,2 +1,11 @@
--Q _build/default PositionAutomata
--Q ../_build/default Linden
+-Q . PositionAutomata
+DegreeofAmbiguity.v
+DegreeofInfiniteAmbiguity.v
+Equivalence.v
+KleeneSemantics.v
+Examples.v
+PositionAutomaton.v
+PositionCorrectness.v
+Sets.v
+Syntax.v
+# -Q ../_build/default Linden

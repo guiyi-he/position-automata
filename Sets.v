@@ -1,4 +1,4 @@
-Require Import List Arith Lia.
+From Stdlib Require Import List Arith Lia.
 Import ListNotations.
 
 (** Lightweight finite sets represented as lists.

@@ -1,1 +1,35 @@
+# VS Code / editor
+.vscode/
+
+# Coq / Rocq compiled files
+*.vo
+*.vos
+*.vok
+*.glob
+*.aux
+*.cache
+*.d
+
+# Coq / Rocq generated Makefile artifacts
+Makefile.coq
+Makefile.coq.conf
+
+# Build directories
 _build/
+.dune/
+.dune-db/
+
+# Dune artifacts
+*.install
+
+# LaTeX auxiliary files, if any
+*.log
+*.out
+*.toc
+*.synctex.gz
+*.fdb_latexmk
+*.fls
+
+# OS files
+.DS_Store
+Thumbs.db
