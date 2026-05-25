@@ -1,8 +1,8 @@
-From Stdlib Require Import List Bool Arith.
+From Stdlib Require Import List Bool Arith Lia.
 Import ListNotations.
 
 From PositionAutomata Require Import
-  Syntax PositionAutomaton Equivalence KleeneSemantics
+  Sets Syntax PositionAutomaton Equivalence KleeneSemantics PositionCorrectness
   DegreeofAmbiguity DegreeofInfiniteAmbiguity.
 
 Definition a_then_b : regex bool :=
@@ -100,6 +100,74 @@ Proof.
   simpl. repeat split; reflexivity.
 Qed.
 
+Example accepts_marked_a_then_b_matches_marked_by_theorem :
+  matches_marked positioned_a_then_b [(0, true); (1, false)].
+Proof.
+  change positioned_a_then_b with (label a_then_b).
+  apply accepts_marked_label_matches_marked.
+  apply accepts_marked_a_then_b.
+Qed.
+
+Example matches_marked_a_then_b_accepts_marked_by_theorem :
+  accepts_marked positioned_a_then_b [(0, true); (1, false)].
+Proof.
+  apply matches_marked_label_accepts_marked.
+  unfold a_then_b, label. simpl.
+  replace [(0, true); (1, false)] with ([(0, true)] ++ [(1, false)])
+    by reflexivity.
+  apply MM_Cat; constructor.
+Qed.
+
+Example matches_marked_a_then_b_boundary :
+  mem 0 (firstpos positioned_a_then_b) = true /\
+  label_of positioned_a_then_b 0 = Some true /\
+  mem (last_position_from 0 [(1, false)]) (lastpos positioned_a_then_b) = true.
+Proof.
+  pose proof
+    (matches_marked_accepts_marked_boundary
+       positioned_a_then_b
+       [(0, true); (1, false)]
+       (label_positions_nodup a_then_b)) as Hboundary.
+  apply Hboundary.
+  unfold positioned_a_then_b, a_then_b, label. simpl.
+  replace [(0, true); (1, false)] with ([(0, true)] ++ [(1, false)])
+    by reflexivity.
+  apply MM_Cat; constructor.
+Qed.
+
+Example accepts_marked_a_then_b_position_nfa_path :
+  accepting_path
+    (position_nfa Bool.eqb positioned_a_then_b)
+    [true; false].
+Proof.
+  change [true; false] with (symbols [(0, true); (1, false)]).
+  apply accepts_marked_position_nfa_accepting_path.
+  - intros [] ; reflexivity.
+  - apply accepts_marked_a_then_b.
+Qed.
+
+Example position_nfa_path_a_then_b_accepts_marked :
+  exists mw,
+    symbols mw = [true; false] /\
+    accepts_marked positioned_a_then_b mw.
+Proof.
+  apply position_nfa_accepting_path_accepts_marked with (label_matches := Bool.eqb).
+  - intros [] [] H; simpl in H; try discriminate; reflexivity.
+  - apply accepts_marked_a_then_b_position_nfa_path.
+Qed.
+
+Example matches_a_then_b_position_nfa_path :
+  exists mw,
+    symbols mw = [true; false] /\
+    accepting_path
+      (position_nfa Bool.eqb positioned_a_then_b)
+      [true; false].
+Proof.
+  apply regex_match_position_nfa_accepting_path.
+  - intros [] ; reflexivity.
+  - apply matches_a_then_b.
+Qed.
+
 Example position_nfa_a_then_b_one_run :
   ambiguity_of_word
     (position_nfa Bool.eqb positioned_a_then_b)
@@ -114,6 +182,24 @@ Proof. reflexivity. Qed.
 
 Definition ambiguous_a : regex bool :=
   Alt (Atom true) (Atom true).
+
+Example accepts_marked_atom_true_matches_marked :
+  matches_marked (PAtom 0 true) [(0, true)].
+Proof.
+  apply accepts_marked_atom_matches_marked.
+  simpl. repeat split; reflexivity.
+Qed.
+
+Example accepts_marked_alt_true_matches_marked :
+  matches_marked (label ambiguous_a) [(0, true)].
+Proof.
+  change (label ambiguous_a) with (PAlt (PAtom 0 true) (PAtom 1 true)).
+  eapply accepts_marked_alt_matches_marked.
+  - simpl. repeat constructor; simpl; lia.
+  - intros mw Hacc. apply accepts_marked_atom_matches_marked. exact Hacc.
+  - intros mw Hacc. apply accepts_marked_atom_matches_marked. exact Hacc.
+  - simpl. repeat split; reflexivity.
+Qed.
 
 Example position_nfa_ambiguous_a_two_runs :
   ambiguity_of_word
