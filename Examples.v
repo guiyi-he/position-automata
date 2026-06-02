@@ -3,7 +3,7 @@ Import ListNotations.
 
 From PositionAutomata Require Import
   Sets Syntax PositionAutomaton Equivalence KleeneSemantics PositionCorrectness
-  DegreeofAmbiguity DegreeofInfiniteAmbiguity.
+  DegreeofAmbiguity DegreeofInfiniteAmbiguity RegexReDoS.
 
 Definition a_then_b : regex bool :=
   Cat (Atom true) (Atom false).
@@ -180,6 +180,18 @@ Example position_nfa_a_then_b_no_eda_fuel_2 :
     (finite_position_nfa [true; false] Bool.eqb positioned_a_then_b) = false.
 Proof. reflexivity. Qed.
 
+Example regex_a_then_b_no_redos_fuel_2 :
+  regex_redosb_with_fuel 2 [true; false] Bool.eqb a_then_b = false.
+Proof. reflexivity. Qed.
+
+Example regex_a_then_b_no_redos_graph :
+  regex_exponential_redosb [true; false] Bool.eqb a_then_b = false.
+Proof. vm_compute. reflexivity. Qed.
+
+Example regex_a_then_b_degree_finite :
+  regex_degree_growthb [true; false] Bool.eqb a_then_b = FiniteAmbiguity.
+Proof. vm_compute. reflexivity. Qed.
+
 Definition ambiguous_a : regex bool :=
   Alt (Atom true) (Atom true).
 
@@ -206,6 +218,38 @@ Example position_nfa_ambiguous_a_two_runs :
     (position_nfa Bool.eqb (label ambiguous_a))
     [true] = 2.
 Proof. reflexivity. Qed.
+
+Definition ambiguous_a_star : regex bool :=
+  Star ambiguous_a.
+
+Example regex_ambiguous_a_star_redos_fuel_2 :
+  regex_redosb_with_fuel 2 [true] Bool.eqb ambiguous_a_star = true.
+Proof. reflexivity. Qed.
+
+Example regex_ambiguous_a_star_redos_graph :
+  regex_redosb_graph [true] Bool.eqb ambiguous_a_star = true.
+Proof. vm_compute. reflexivity. Qed.
+
+Example regex_ambiguous_a_star_degree_exponential :
+  regex_degree_growthb [true] Bool.eqb ambiguous_a_star = ExponentialAmbiguity.
+Proof. vm_compute. reflexivity. Qed.
+
+Example regex_ambiguous_a_star_vulnerable :
+  regex_redos_vulnerable [true] Bool.eqb ambiguous_a_star.
+Proof.
+  apply regex_redosb_with_fuel_sound with (fuel := 2).
+  reflexivity.
+Qed.
+
+Example regex_ambiguous_a_star_exponential_lower :
+  regex_exponential_ambiguity_lower_bound
+    [true]
+    Bool.eqb
+    ambiguous_a_star.
+Proof.
+  apply regex_redosb_with_fuel_exponential_lower with (fuel := 2).
+  reflexivity.
+Qed.
 
 Definition unit_eqb (_ _ : unit) : bool := true.
 
@@ -293,9 +337,43 @@ Example ida_example_idab :
   idab_with_fuel 1 ida_example_nfa = true.
 Proof. reflexivity. Qed.
 
+Example ida_example_idab_graph :
+  idab_graph ida_example_nfa = true.
+Proof. vm_compute. reflexivity. Qed.
+
+Example ida_example_no_edab_graph :
+  edab_graph ida_example_nfa = false.
+Proof. vm_compute. reflexivity. Qed.
+
+Example ida_example_degree_growth_graph :
+  degree_growthb ida_example_nfa = PolynomialAmbiguity 1.
+Proof. vm_compute. reflexivity. Qed.
+
+Example ida_example_ida_db_graph_1 :
+  ida_db_graph 1 ida_example_nfa = true.
+Proof. vm_compute. reflexivity. Qed.
+
 Example ida_example_satisfies_ida :
   IDA ida_example_nfa.
 Proof.
   apply idab_with_fuel_sound with (fuel := 1).
   reflexivity.
+Qed.
+
+Example ida_example_idadb_1 :
+  idadb_with_fuel 1 1 ida_example_nfa = true.
+Proof. reflexivity. Qed.
+
+Example ida_example_satisfies_ida_d_1 :
+  IDA_d ida_example_nfa 1.
+Proof.
+  apply idadb_with_fuel_sound with (fuel := 1).
+  reflexivity.
+Qed.
+
+Example ida_example_ida_implies_ida_d_1 :
+  IDA_d ida_example_nfa 1.
+Proof.
+  apply IDA_d_one_of_IDA.
+  apply ida_example_satisfies_ida.
 Qed.

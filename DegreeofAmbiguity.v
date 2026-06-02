@@ -69,6 +69,83 @@ Proof.
   exists x. split; assumption.
 Qed.
 
+Lemma sum_nats_In_le :
+  forall xs x,
+    In x xs ->
+    x <= sum_nats xs.
+Proof.
+  induction xs as [| y ys IH]; simpl; intros x Hin.
+  - contradiction.
+  - destruct Hin as [Heq | Hin].
+    + subst. lia.
+    + specialize (IH x Hin). lia.
+Qed.
+
+Lemma sum_map_In_le :
+  forall {B : Type} (f : B -> nat) xs x,
+    In x xs ->
+    f x <= sum_nats (map f xs).
+Proof.
+  intros B f xs x Hin.
+  apply sum_nats_In_le.
+  now apply in_map.
+Qed.
+
+Lemma sum_map_mul_le :
+  forall {B : Type} (f g : B -> nat) c xs,
+    (forall x, In x xs -> f x * c <= g x) ->
+    sum_nats (map f xs) * c <= sum_nats (map g xs).
+Proof.
+  intros B f g c xs H.
+  induction xs as [| x xs IH]; simpl.
+  - lia.
+  - rewrite Nat.mul_add_distr_r.
+    assert (Hx : f x * c <= g x).
+    { apply H. simpl. auto. }
+    assert (Hxs : sum_nats (map f xs) * c <= sum_nats (map g xs)).
+    { apply IH. intros y Hy. apply H. simpl. auto. }
+    lia.
+Qed.
+
+Lemma sum_map_two_mul_le :
+  forall {B : Type} (f1 f2 g : B -> nat) c1 c2 xs,
+    (forall x, In x xs -> f1 x * c1 + f2 x * c2 <= g x) ->
+    sum_nats (map f1 xs) * c1 + sum_nats (map f2 xs) * c2 <=
+      sum_nats (map g xs).
+Proof.
+  intros B f1 f2 g c1 c2 xs H.
+  induction xs as [| x xs IH]; simpl.
+  - lia.
+  - rewrite !Nat.mul_add_distr_r.
+    assert (Hx : f1 x * c1 + f2 x * c2 <= g x).
+    { apply H. simpl. auto. }
+    assert (Hxs :
+      sum_nats (map f1 xs) * c1 + sum_nats (map f2 xs) * c2 <=
+        sum_nats (map g xs)).
+    { apply IH. intros y Hy. apply H. simpl. auto. }
+    lia.
+Qed.
+
+Lemma nat_le_mul_with_positive :
+  forall a b x,
+    1 <= a ->
+    1 <= b ->
+    x <= a * x * b.
+Proof.
+  intros a b x Ha Hb.
+  assert (Hax : x <= a * x).
+  {
+    rewrite <- (Nat.mul_1_l x) at 1.
+    apply Nat.mul_le_mono_r. exact Ha.
+  }
+  assert (Hab : a * x <= a * x * b).
+  {
+    rewrite <- (Nat.mul_1_r (a * x)) at 1.
+    apply Nat.mul_le_mono_l. exact Hb.
+  }
+  lia.
+Qed.
+
 Section NFA.
   Context {A : Type}.
 
@@ -88,6 +165,29 @@ Section NFA.
       forall x y, fnfa_state_eqb x y = true -> x = y;
     fnfa_state_eqb_complete :
       forall x y, x = y -> fnfa_state_eqb x y = true
+  }.
+
+  Record finite_nfa_wf (m : finite_nfa) : Prop := {
+    fnfa_states_nodup :
+      NoDup (fnfa_states m);
+    fnfa_starts_in_states :
+      forall q,
+        In q (nfa_start (fnfa_base m)) ->
+        In q (fnfa_states m);
+    fnfa_steps_in_states :
+      forall q a q',
+        In q (fnfa_states m) ->
+        In q' (nfa_step (fnfa_base m) q a) ->
+        In q' (fnfa_states m);
+    fnfa_steps_in_alphabet :
+      forall q a q',
+        In q (fnfa_states m) ->
+        In q' (nfa_step (fnfa_base m) q a) ->
+        In a (fnfa_alphabet m);
+    fnfa_step_targets_nodup :
+      forall q a,
+        In q (fnfa_states m) ->
+        NoDup (nfa_step (fnfa_base m) q a)
   }.
 
   Inductive path_from (m : nfa)
@@ -120,6 +220,23 @@ Section NFA.
   Definition connected (m : nfa) (p q : nfa_state m) : Prop :=
     exists u v,
       path_from m p u q /\ path_from m q v p.
+
+  Fixpoint word_power (w : list A) (n : nat) : list A :=
+    match n with
+    | O => []
+    | S n' => w ++ word_power w n'
+    end.
+
+  Lemma path_from_app :
+    forall (m : nfa) p u q v r,
+      path_from m p u q ->
+      path_from m q v r ->
+      path_from m p (u ++ v) r.
+  Proof.
+    intros m p u q v r Hleft Hright.
+    induction Hleft; simpl; auto.
+    eapply Path_cons; eauto.
+  Qed.
 
   Fixpoint accepting_runs_from
       (m : nfa)
@@ -196,6 +313,17 @@ Section NFA.
          (fun q0 => runs_between m q0 w q)
          (nfa_start (fnfa_base m))).
 
+  Lemma fnfa_state_eqb_neq_false :
+    forall (m : finite_nfa) x y,
+      x <> y ->
+      fnfa_state_eqb m x y = false.
+  Proof.
+    intros m x y Hneq.
+    destruct (fnfa_state_eqb m x y) eqn:Heq; auto.
+    apply fnfa_state_eqb_sound in Heq.
+    contradiction.
+  Qed.
+
   Lemma runs_between_positive_path :
     forall (m : finite_nfa) q w r,
       0 < runs_between m q w r ->
@@ -225,6 +353,41 @@ Section NFA.
     now apply runs_between_positive_path.
   Qed.
 
+  Lemma path_runs_between_positive :
+    forall (m : finite_nfa) q w r,
+      path_from (fnfa_base m) q w r ->
+      0 < runs_between m q w r.
+  Proof.
+    intros m q w r Hpath.
+    induction Hpath as [q| q a q' w q'' Hstep _ IH]; simpl.
+    - rewrite (fnfa_state_eqb_complete m q q eq_refl). lia.
+    - pose proof
+        (sum_map_In_le
+           (fun s => runs_between m s w q'')
+           (nfa_step (fnfa_base m) q a)
+           q'
+           Hstep) as Hle.
+      lia.
+  Qed.
+
+  Lemma path_start_runs_to_positive :
+    forall (m : finite_nfa) w q q0,
+      In q0 (nfa_start (fnfa_base m)) ->
+      path_from (fnfa_base m) q0 w q ->
+      0 < start_runs_to m w q.
+  Proof.
+    intros m w q q0 Hstart Hpath.
+    unfold start_runs_to.
+    pose proof
+      (sum_map_In_le
+         (fun s => runs_between m s w q)
+         (nfa_start (fnfa_base m))
+         q0
+         Hstart) as Hle.
+    pose proof (path_runs_between_positive m q0 w q Hpath) as Hpos.
+    lia.
+  Qed.
+
   Lemma accepting_runs_from_positive_path :
     forall (m : nfa) q w,
       0 < accepting_runs_from m q w ->
@@ -243,6 +406,25 @@ Section NFA.
       eapply Path_cons; eauto.
   Qed.
 
+  Lemma path_accepting_runs_from_positive :
+    forall (m : nfa) q w qf,
+      path_from m q w qf ->
+      nfa_final m qf = true ->
+      0 < accepting_runs_from m q w.
+  Proof.
+    intros m q w qf Hpath Hfinal.
+    induction Hpath as [q| q a q' w q'' Hstep _ IH]; simpl.
+    - rewrite Hfinal. lia.
+    - pose proof
+        (sum_map_In_le
+           (fun s => accepting_runs_from m s w)
+           (nfa_step m q a)
+           q'
+           Hstep) as Hle.
+      specialize (IH Hfinal).
+      lia.
+  Qed.
+
   Lemma useful_state_from_positive_tests :
     forall (m : finite_nfa) q w_in w_out,
       0 < start_runs_to m w_in q ->
@@ -256,6 +438,168 @@ Section NFA.
     unfold useful_state.
     exists q0, qf, w_in, w_out.
     repeat split; assumption.
+  Qed.
+
+  Lemma useful_state_positive_tests :
+    forall (m : finite_nfa) q,
+      useful_state (fnfa_base m) q ->
+      exists w_in w_out,
+        0 < start_runs_to m w_in q /\
+        0 < accepting_runs_from (fnfa_base m) q w_out.
+  Proof.
+    intros m q Huseful.
+    unfold useful_state in Huseful.
+    destruct Huseful as [q0 [qf [w_in [w_out
+      [Hstart [Hpath_in [Hpath_out Hfinal]]]]]]].
+    exists w_in, w_out.
+    split.
+    - eapply path_start_runs_to_positive; eauto.
+    - eapply path_accepting_runs_from_positive; eauto.
+  Qed.
+
+  Lemma runs_between_app_lower :
+    forall (m : finite_nfa) p u q v r,
+      runs_between m p u q * runs_between m q v r <=
+      runs_between m p (u ++ v) r.
+  Proof.
+    intros m p u.
+    revert p.
+    induction u as [| a u IH]; intros p q v r; simpl.
+    - destruct (fnfa_state_eqb m p q) eqn:Heq.
+      + apply fnfa_state_eqb_sound in Heq. subst. lia.
+      + lia.
+    - apply sum_map_mul_le.
+      intros p' _.
+      apply IH.
+  Qed.
+
+  Lemma runs_between_app_lower_two :
+    forall (m : finite_nfa) p q r u v s,
+      p <> q ->
+      runs_between m r u p * runs_between m p v s +
+      runs_between m r u q * runs_between m q v s <=
+      runs_between m r (u ++ v) s.
+  Proof.
+    intros m p q r u.
+    revert r.
+    induction u as [| a u IH]; intros r v s Hneq; simpl.
+    - destruct (fnfa_state_eqb m r p) eqn:Hrp;
+        destruct (fnfa_state_eqb m r q) eqn:Hrq.
+      + apply fnfa_state_eqb_sound in Hrp.
+        apply fnfa_state_eqb_sound in Hrq.
+        subst. contradiction.
+      + apply fnfa_state_eqb_sound in Hrp. subst. lia.
+      + apply fnfa_state_eqb_sound in Hrq. subst. lia.
+      + lia.
+    - apply sum_map_two_mul_le.
+      intros r' _.
+      apply IH. exact Hneq.
+  Qed.
+
+  Lemma accepting_runs_from_app_lower :
+    forall (m : finite_nfa) q v r w,
+      runs_between m q v r * accepting_runs_from (fnfa_base m) r w <=
+      accepting_runs_from (fnfa_base m) q (v ++ w).
+  Proof.
+    intros m q v.
+    revert q.
+    induction v as [| a v IH]; intros q r w; simpl.
+    - destruct (fnfa_state_eqb m q r) eqn:Heq.
+      + apply fnfa_state_eqb_sound in Heq. subst. lia.
+      + lia.
+    - apply sum_map_mul_le.
+      intros q' _.
+      apply IH.
+  Qed.
+
+  Lemma accepting_runs_from_app_lower_two :
+    forall (m : finite_nfa) p q r v w,
+      p <> q ->
+      runs_between m r v p * accepting_runs_from (fnfa_base m) p w +
+      runs_between m r v q * accepting_runs_from (fnfa_base m) q w <=
+      accepting_runs_from (fnfa_base m) r (v ++ w).
+  Proof.
+    intros m p q r v.
+    revert r.
+    induction v as [| a v IH]; intros r w Hneq; simpl.
+    - destruct (fnfa_state_eqb m r p) eqn:Hrp;
+        destruct (fnfa_state_eqb m r q) eqn:Hrq.
+      + apply fnfa_state_eqb_sound in Hrp.
+        apply fnfa_state_eqb_sound in Hrq.
+        subst. contradiction.
+      + apply fnfa_state_eqb_sound in Hrp. subst. lia.
+      + apply fnfa_state_eqb_sound in Hrq. subst. lia.
+      + lia.
+    - apply sum_map_two_mul_le.
+      intros r' _.
+      apply IH. exact Hneq.
+  Qed.
+
+  Lemma accepting_runs_from_word_power_lower :
+    forall (m : finite_nfa) q v n w c,
+      c <= da_from_to m q v q ->
+      Nat.pow c n * accepting_runs_from (fnfa_base m) q w <=
+      accepting_runs_from (fnfa_base m) q (word_power v n ++ w).
+  Proof.
+    intros m q v n.
+    induction n as [| n IH]; intros w c Hc; simpl.
+    - lia.
+    - rewrite <- app_assoc.
+      eapply Nat.le_trans with
+        (m := da_from_to m q v q *
+              accepting_runs_from
+                (fnfa_base m) q (word_power v n ++ w)).
+      + replace
+          (c * Nat.pow c n * accepting_runs_from (fnfa_base m) q w)
+          with
+          (c * (Nat.pow c n *
+             accepting_runs_from (fnfa_base m) q w))
+          by lia.
+        apply Nat.mul_le_mono.
+        * exact Hc.
+        * apply IH. exact Hc.
+      + unfold da_from_to.
+        apply accepting_runs_from_app_lower.
+  Qed.
+
+  Lemma ambiguity_of_word_app_lower :
+    forall (m : finite_nfa) w_in q w_out,
+      start_runs_to m w_in q *
+      accepting_runs_from (fnfa_base m) q w_out <=
+      ambiguity_of_word (fnfa_base m) (w_in ++ w_out).
+  Proof.
+    intros m w_in q w_out.
+    unfold start_runs_to, ambiguity_of_word.
+    apply sum_map_mul_le.
+    intros q0 _.
+    apply accepting_runs_from_app_lower.
+  Qed.
+
+  Lemma ambiguity_of_word_word_power_lower :
+    forall (m : finite_nfa) w_in q v n w_out c,
+      c <= da_from_to m q v q ->
+      start_runs_to m w_in q * Nat.pow c n *
+      accepting_runs_from (fnfa_base m) q w_out <=
+      ambiguity_of_word
+        (fnfa_base m)
+        (w_in ++ word_power v n ++ w_out).
+  Proof.
+    intros m w_in q v n w_out c Hc.
+    eapply Nat.le_trans with
+      (m := start_runs_to m w_in q *
+            accepting_runs_from
+              (fnfa_base m) q (word_power v n ++ w_out)).
+    - replace
+        (start_runs_to m w_in q * Nat.pow c n *
+           accepting_runs_from (fnfa_base m) q w_out)
+        with
+        (start_runs_to m w_in q *
+          (Nat.pow c n *
+           accepting_runs_from (fnfa_base m) q w_out))
+        by lia.
+      apply Nat.mul_le_mono_l.
+      now apply accepting_runs_from_word_power_lower.
+    - apply ambiguity_of_word_app_lower.
   Qed.
 
   Definition option_nat_eqb (x y : option nat) : bool :=

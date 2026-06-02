@@ -33,3 +33,6 @@ _build/
 # OS files
 .DS_Store
 Thumbs.db
+
+*.pdf
+test.md
