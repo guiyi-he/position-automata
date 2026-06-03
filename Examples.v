@@ -174,6 +174,30 @@ Example position_nfa_a_then_b_one_run :
     [true; false] = 1.
 Proof. reflexivity. Qed.
 
+Example finite_position_nfa_wf_a_then_b :
+  finite_nfa_wf
+    (finite_position_nfa [true; false] Bool.eqb positioned_a_then_b).
+Proof.
+  apply finite_position_nfa_wf.
+  - unfold positioned_a_then_b, a_then_b, label. simpl.
+    change (NoDup [0; 1]).
+    constructor.
+    + simpl. intros [H | []]. discriminate.
+    + constructor.
+      * simpl. intros [].
+      * constructor.
+  - unfold position_label_matches_closed.
+    intros p b a _ _ _.
+    destruct a; simpl; auto.
+  - intros [[| [| p]] |] []; vm_compute.
+    all:
+      match goal with
+      | |- NoDup [] => constructor
+      | |- NoDup (_ :: []) =>
+          constructor; [simpl; intros [] | constructor]
+      end.
+Qed.
+
 Example position_nfa_a_then_b_no_eda_fuel_2 :
   edab_with_fuel
     2
@@ -233,6 +257,26 @@ Proof. vm_compute. reflexivity. Qed.
 Example regex_ambiguous_a_star_degree_exponential :
   regex_degree_growthb [true] Bool.eqb ambiguous_a_star = ExponentialAmbiguity.
 Proof. vm_compute. reflexivity. Qed.
+
+Example regex_ambiguous_a_star_threshold_infinite :
+  regex_redosb_at_least
+    (PolynomialAmbiguity 1)
+    [true]
+    Bool.eqb
+    ambiguous_a_star = true.
+Proof. vm_compute. reflexivity. Qed.
+
+Example regex_ambiguous_a_star_exponential_iff :
+  regex_exponential_redosb [true] Bool.eqb ambiguous_a_star = true <->
+  regex_redos_vulnerable [true] Bool.eqb ambiguous_a_star.
+Proof.
+  split.
+  - apply regex_exponential_redosb_sound.
+  - intros _.
+    unfold regex_exponential_redosb.
+    rewrite regex_ambiguous_a_star_degree_exponential.
+    reflexivity.
+Qed.
 
 Example regex_ambiguous_a_star_vulnerable :
   regex_redos_vulnerable [true] Bool.eqb ambiguous_a_star.

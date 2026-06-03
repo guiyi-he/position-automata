@@ -266,6 +266,20 @@ Section InfiniteAmbiguity.
       (length (fnfa_states m))
       p q.
 
+  Definition state_reach_relation
+      (m : @finite_nfa A) : list (finite_state m * finite_state m) :=
+    reachability_relation
+      (fnfa_state_eqb m)
+      (fnfa_states m)
+      (transitionb m)
+      (length (fnfa_states m)).
+
+  Definition state_reachb_in
+      (m : @finite_nfa A)
+      (rel : list (finite_state m * finite_state m))
+      (p q : finite_state m) : bool :=
+    pair_inb (fnfa_state_eqb m) p q rel.
+
   Definition state_connectedb
       (m : @finite_nfa A)
       (p q : finite_state m) : bool :=
@@ -399,6 +413,20 @@ Section InfiniteAmbiguity.
       (length (state_triple_vertices m))
       x y.
 
+  Definition g3_reach_relation
+      (m : @finite_nfa A) : list (state_triple m * state_triple m) :=
+    reachability_relation
+      (state_triple_eqb m)
+      (state_triple_vertices m)
+      (g3_edgeb m)
+      (length (state_triple_vertices m)).
+
+  Definition g3_reachb_in
+      (m : @finite_nfa A)
+      (rel : list (state_triple m * state_triple m))
+      (x y : state_triple m) : bool :=
+    pair_inb (state_triple_eqb m) x y rel.
+
   Definition idab_graph (m : @finite_nfa A) : bool :=
     existsb
       (fun p =>
@@ -438,14 +466,72 @@ Section InfiniteAmbiguity.
   Definition g5_edgeb
       (m : @finite_nfa A)
       (ci cj : finite_state m) : bool :=
-    g5_redgeb m ci cj || state_reachb m ci cj.
+    g5_redgeb m ci cj
+    || (negb (state_connectedb m ci cj) && state_reachb m ci cj).
+
+  Definition same_sccb
+      (m : @finite_nfa A)
+      (p q : finite_state m) : bool :=
+    state_connectedb m p q.
+
+  Definition add_scc_rep
+      (m : @finite_nfa A)
+      (q : finite_state m)
+      (reps : list (finite_state m)) : list (finite_state m) :=
+    if existsb (same_sccb m q) reps then reps else q :: reps.
+
+  Definition scc_representatives (m : @finite_nfa A)
+      : list (finite_state m) :=
+    fold_right (add_scc_rep m) [] (fnfa_states m).
+
+  Definition g5_vertices (m : @finite_nfa A)
+      : list (finite_state m) :=
+    scc_representatives m.
 
   Definition g5_degree_lower_boundb (m : @finite_nfa A) : nat :=
+    let vertices := g5_vertices m in
+    let state_rel := state_reach_relation m in
+    let g3_rel := g3_reach_relation m in
+    let state_reachc := state_reachb_in m state_rel in
+    let state_connectedc :=
+      fun p q => state_reachc p q && state_reachc q p in
+    let usefulc :=
+      fun q =>
+        existsb
+          (fun q0 => state_reachc q0 q)
+          (nfa_start (fnfa_base m))
+        &&
+        existsb
+          (fun qf => nfa_final (fnfa_base m) qf && state_reachc q qf)
+          (fnfa_states m) in
+    let redge :=
+      fun ci cj =>
+        existsb
+          (fun p =>
+             state_connectedc ci p
+             &&
+             usefulc p
+             &&
+             existsb
+               (fun q =>
+                  state_connectedc cj q
+                  &&
+                  usefulc q
+                  &&
+                  negb (fnfa_state_eqb m p q)
+                  &&
+                  g3_reachb_in m g3_rel ((p, p), q) ((p, q), q))
+               (fnfa_states m))
+          (fnfa_states m) in
+    let edge :=
+      fun ci cj =>
+        redge ci cj
+        || (negb (state_connectedc ci cj) && state_reachc ci cj) in
     max_special_edges
-      (fnfa_states m)
-      (g5_edgeb m)
-      (g5_redgeb m)
-      (length (fnfa_states m)).
+      vertices
+      edge
+      redge
+      (length vertices).
 
   Definition ida_degree_lower_boundb (m : @finite_nfa A) : nat :=
     g5_degree_lower_boundb m.
@@ -602,6 +688,18 @@ Section InfiniteAmbiguity.
     now subst.
   Qed.
 
+  Lemma state_inb_complete :
+    forall (m : @finite_nfa A) q,
+      In q (fnfa_states m) ->
+      state_inb m q = true.
+  Proof.
+    intros m q Hin.
+    unfold state_inb.
+    apply existsb_exists.
+    exists q. split; auto.
+    apply fnfa_state_eqb_complete. reflexivity.
+  Qed.
+
   Lemma step_to_stateb_sound :
     forall (m : @finite_nfa A) q a q',
       step_to_stateb m q a q' = true ->
@@ -612,6 +710,18 @@ Section InfiniteAmbiguity.
     apply existsb_exists in H as [r [Hin Heq]].
     apply fnfa_state_eqb_sound in Heq.
     now subst.
+  Qed.
+
+  Lemma step_to_stateb_complete :
+    forall (m : @finite_nfa A) q a q',
+      In q' (nfa_step (fnfa_base m) q a) ->
+      step_to_stateb m q a q' = true.
+  Proof.
+    intros m q a q' Hin.
+    unfold step_to_stateb.
+    apply existsb_exists.
+    exists q'. split; auto.
+    apply fnfa_state_eqb_complete. reflexivity.
   Qed.
 
   Lemma transitionb_sound :
@@ -628,6 +738,33 @@ Section InfiniteAmbiguity.
     now apply step_to_stateb_sound in Hstep.
   Qed.
 
+  Lemma transitionb_complete :
+    forall (m : @finite_nfa A) q a q',
+      finite_nfa_wf m ->
+      In q (fnfa_states m) ->
+      In q' (nfa_step (fnfa_base m) q a) ->
+      transitionb m q q' = true.
+  Proof.
+    intros m q a q' Hwf Hq Hstep.
+    unfold transitionb.
+    apply existsb_exists.
+    exists a. split.
+    - eapply finite_nfa_wf_step_in_alphabet; eauto.
+    - now apply step_to_stateb_complete.
+  Qed.
+
+  Lemma transitionb_closed :
+    forall (m : @finite_nfa A) q q',
+      finite_nfa_wf m ->
+      In q (fnfa_states m) ->
+      transitionb m q q' = true ->
+      In q' (fnfa_states m).
+  Proof.
+    intros m q q' Hwf Hq Htrans.
+    destruct (transitionb_sound m q q' Htrans) as [a [_ Hstep]].
+    eapply finite_nfa_wf_step_in_states; eauto.
+  Qed.
+
   Lemma transition_walk_path :
     forall (m : @finite_nfa A) p q,
       walk (transitionb m) p q ->
@@ -639,6 +776,22 @@ Section InfiniteAmbiguity.
     - destruct (transitionb_sound m x y Hedge) as [a [_ Hstep]].
       exists (a :: w).
       eapply Path_cons; eauto.
+  Qed.
+
+  Lemma path_transition_walk :
+    forall (m : @finite_nfa A) p w q,
+      finite_nfa_wf m ->
+      In p (fnfa_states m) ->
+      finite_delta_star m p w q ->
+      walk (transitionb m) p q.
+  Proof.
+    intros m p w q Hwf Hpin Hpath.
+    induction Hpath as [q| q a q' w q'' Hstep _ IH].
+    - constructor.
+    - eapply Walk_step.
+      + eapply transitionb_complete; eauto.
+      + apply IH.
+        eapply finite_nfa_wf_step_in_states; eauto.
   Qed.
 
   Lemma state_reachb_sound_path :
@@ -660,6 +813,30 @@ Section InfiniteAmbiguity.
     now apply transition_walk_path.
   Qed.
 
+  Lemma state_reachb_complete_path :
+    forall (m : @finite_nfa A) p w q,
+      finite_nfa_wf m ->
+      In p (fnfa_states m) ->
+      finite_delta_star m p w q ->
+      state_reachb m p q = true.
+  Proof.
+    intros m p w q Hwf Hpin Hpath.
+    unfold state_reachb.
+    eapply (@reachb_complete
+      (finite_state m)
+      (fnfa_state_eqb m)
+      (fun x y Heq => fnfa_state_eqb_complete m x y Heq)
+      (fnfa_states m)
+      (transitionb m)
+      (length (fnfa_states m))
+      p q).
+    - apply le_n.
+    - exact Hpin.
+    - intros x y Hx Hedge.
+      eapply transitionb_closed; eauto.
+    - eapply path_transition_walk; eauto.
+  Qed.
+
   Lemma usefulb_graph_sound :
     forall (m : @finite_nfa A) q,
       usefulb_graph m q = true ->
@@ -677,6 +854,32 @@ Section InfiniteAmbiguity.
     repeat split; assumption.
   Qed.
 
+  Lemma usefulb_graph_complete :
+    forall (m : @finite_nfa A) q,
+      finite_nfa_wf m ->
+      finite_useful m q ->
+      usefulb_graph m q = true.
+  Proof.
+    intros m q Hwf Huseful.
+    destruct Huseful as [q0 [qf [w_in [w_out
+      [Hstart [Hpath_in [Hpath_out Hfinal]]]]]]].
+    assert (Hq0 : In q0 (fnfa_states m)).
+    { eapply finite_nfa_wf_start_in_states; eauto. }
+    assert (Hq : In q (fnfa_states m)).
+    { eapply finite_nfa_wf_path_end_in_states; eauto. }
+    assert (Hqf : In qf (fnfa_states m)).
+    { eapply finite_nfa_wf_path_end_in_states; eauto. }
+    unfold usefulb_graph.
+    apply andb_true_iff. split.
+    - apply existsb_exists.
+      exists q0. split; auto.
+      eapply state_reachb_complete_path; eauto.
+    - apply existsb_exists.
+      exists qf. split; auto.
+      apply andb_true_iff. split; auto.
+      eapply state_reachb_complete_path; eauto.
+  Qed.
+
   Lemma state_pair_eqb_sound :
     forall (m : @finite_nfa A) (x y : state_pair m),
       state_pair_eqb m x y = true -> x = y.
@@ -687,6 +890,28 @@ Section InfiniteAmbiguity.
     apply fnfa_state_eqb_sound in H1.
     apply fnfa_state_eqb_sound in H2.
     subst. reflexivity.
+  Qed.
+
+  Lemma state_pair_eqb_complete :
+    forall (m : @finite_nfa A) (x y : state_pair m),
+      x = y -> state_pair_eqb m x y = true.
+  Proof.
+    intros m [x1 x2] [y1 y2] H. inversion H; subst.
+    unfold state_pair_eqb. simpl.
+    rewrite (fnfa_state_eqb_complete m y1 y1 eq_refl).
+    rewrite (fnfa_state_eqb_complete m y2 y2 eq_refl).
+    reflexivity.
+  Qed.
+
+  Lemma state_pair_vertices_complete :
+    forall (m : @finite_nfa A) p q,
+      In p (fnfa_states m) ->
+      In q (fnfa_states m) ->
+      In (p, q) (state_pair_vertices m).
+  Proof.
+    intros m p q Hp Hq.
+    unfold state_pair_vertices.
+    now apply in_prod.
   Qed.
 
   Lemma g2_edgeb_sound :
@@ -703,6 +928,38 @@ Section InfiniteAmbiguity.
     apply andb_true_iff in Hsteps as [H1 H2].
     exists a. repeat split; auto;
       now apply step_to_stateb_sound.
+  Qed.
+
+  Lemma g2_edgeb_complete :
+    forall (m : @finite_nfa A) x y a,
+      In a (fnfa_alphabet m) ->
+      In (fst y) (nfa_step (fnfa_base m) (fst x) a) ->
+      In (snd y) (nfa_step (fnfa_base m) (snd x) a) ->
+      g2_edgeb m x y = true.
+  Proof.
+    intros m x y a Ha H1 H2.
+    unfold g2_edgeb.
+    apply existsb_exists.
+    exists a. split; auto.
+    apply andb_true_iff. split;
+      now apply step_to_stateb_complete.
+  Qed.
+
+  Lemma g2_edgeb_closed :
+    forall (m : @finite_nfa A) x y,
+      finite_nfa_wf m ->
+      In x (state_pair_vertices m) ->
+      g2_edgeb m x y = true ->
+      In y (state_pair_vertices m).
+  Proof.
+    intros m [x1 x2] [y1 y2] Hwf Hx Hedge.
+    unfold state_pair_vertices in Hx.
+    apply in_prod_iff in Hx as [Hx1 Hx2].
+    destruct (g2_edgeb_sound m (x1, x2) (y1, y2) Hedge)
+      as [a [_ [Hstep1 Hstep2]]].
+    apply state_pair_vertices_complete.
+    - eapply finite_nfa_wf_step_in_states with (q := x1) (a := a); eauto.
+    - eapply finite_nfa_wf_step_in_states with (q := x2) (a := a); eauto.
   Qed.
 
   Lemma g2_walk_paths :
@@ -722,6 +979,139 @@ Section InfiniteAmbiguity.
       destruct (g2_edgeb_sound m (x1, x2) (y1, y2) Hedge)
         as [a [_ [Hstep1 Hstep2]]].
       exists (a :: w). split; eapply Path_cons; eauto.
+  Qed.
+
+  Lemma g2_paths_walk :
+    forall (m : @finite_nfa A) p1 p2 w q1 q2,
+      finite_nfa_wf m ->
+      In p1 (fnfa_states m) ->
+      In p2 (fnfa_states m) ->
+      finite_delta_star m p1 w q1 ->
+      finite_delta_star m p2 w q2 ->
+      walk (g2_edgeb m) (p1, p2) (q1, q2).
+  Proof.
+    intros m p1 p2 w q1 q2 Hwf Hp1 Hp2 Hpath1.
+    revert p2 q2 Hp2.
+    induction Hpath1 as [q1| p1 a p1' w q1 Hstep1 _ IH];
+      intros p2 q2 Hp2 Hpath2.
+    - inversion Hpath2; subst. constructor.
+    - inversion Hpath2 as [| p2' a' q2' w' q2'' Hstep2 Htail2]; subst.
+      eapply Walk_step with (y := (p1', q2')).
+      + eapply g2_edgeb_complete.
+        * eapply finite_nfa_wf_step_in_alphabet; eauto.
+        * exact Hstep1.
+        * exact Hstep2.
+      + apply IH.
+        * eapply finite_nfa_wf_step_in_states with (q := p1) (a := a); eauto.
+        * eapply finite_nfa_wf_step_in_states with (q := p2) (a := a); eauto.
+        * exact Htail2.
+  Qed.
+
+  Lemma g2_reachb_complete_paths :
+    forall (m : @finite_nfa A) x y w,
+      finite_nfa_wf m ->
+      In (fst x) (fnfa_states m) ->
+      In (snd x) (fnfa_states m) ->
+      finite_delta_star m (fst x) w (fst y) ->
+      finite_delta_star m (snd x) w (snd y) ->
+      g2_reachb m x y = true.
+  Proof.
+    intros m [x1 x2] [y1 y2] w Hwf Hx1 Hx2 Hpath1 Hpath2.
+    unfold g2_reachb.
+    eapply (@reachb_complete
+      (state_pair m)
+      (state_pair_eqb m)
+      (fun a b Hab => state_pair_eqb_complete m a b Hab)
+      (state_pair_vertices m)
+      (g2_edgeb m)
+      (length (state_pair_vertices m))
+      (x1, x2) (y1, y2)).
+    - apply le_n.
+    - apply state_pair_vertices_complete; assumption.
+    - intros a b Ha Hedge.
+      eapply g2_edgeb_closed; eauto.
+    - eapply g2_paths_walk; eauto.
+  Qed.
+
+  Lemma g2_connectedb_complete_paths :
+    forall (m : @finite_nfa A) x y u v,
+      finite_nfa_wf m ->
+      In (fst x) (fnfa_states m) ->
+      In (snd x) (fnfa_states m) ->
+      In (fst y) (fnfa_states m) ->
+      In (snd y) (fnfa_states m) ->
+      finite_delta_star m (fst x) u (fst y) ->
+      finite_delta_star m (snd x) u (snd y) ->
+      finite_delta_star m (fst y) v (fst x) ->
+      finite_delta_star m (snd y) v (snd x) ->
+      g2_connectedb m x y = true.
+  Proof.
+    intros m [x1 x2] [y1 y2] u v Hwf Hx1 Hx2 Hy1 Hy2 Hxy1 Hxy2 Hyx1 Hyx2.
+    unfold g2_connectedb.
+    eapply (@connectedb_complete
+      (state_pair m)
+      (state_pair_eqb m)
+      (fun a b Hab => state_pair_eqb_complete m a b Hab)
+      (state_pair_vertices m)
+      (g2_edgeb m)
+      (length (state_pair_vertices m))
+      (x1, x2) (y1, y2)).
+    - apply le_n.
+    - apply state_pair_vertices_complete; assumption.
+    - apply state_pair_vertices_complete; assumption.
+    - intros a b Ha Hedge.
+      eapply g2_edgeb_closed; eauto.
+    - eapply g2_paths_walk; eauto.
+    - eapply g2_paths_walk; eauto.
+  Qed.
+
+  Lemma runs_between_two_sync_paths :
+    forall (m : @finite_nfa A) q w r,
+      finite_nfa_wf m ->
+      In q (fnfa_states m) ->
+      2 <= runs_between m q w r ->
+      exists p s u v,
+        p <> s /\
+        finite_delta_star m q u p /\
+        finite_delta_star m q u s /\
+        finite_delta_star m p v r /\
+        finite_delta_star m s v r.
+  Proof.
+    intros m q w.
+    revert q.
+    induction w as [| a w IH]; intros q r Hwf Hq Htwo; simpl in Htwo.
+    - destruct (fnfa_state_eqb m q r); lia.
+    - pose proof
+        (finite_nfa_wf_step_targets_NoDup m q a Hwf Hq)
+        as Hnodup.
+      destruct
+        (sum_map_ge_two_cases
+           (fun s => runs_between m s w r)
+           (nfa_step (fnfa_base m) q a)
+           Hnodup
+           Htwo)
+        as [[mid [Hmid Hmid_two]] |
+            [p [s [Hp [Hs [Hneq [Hp_pos Hs_pos]]]]]]].
+      + assert (Hmid_state : In mid (fnfa_states m)).
+        { eapply finite_nfa_wf_step_in_states; eauto. }
+        destruct (IH mid r Hwf Hmid_state Hmid_two)
+          as [p [s [u [v [Hneq [Hup [Hus [Hpv Hsv]]]]]]]].
+        exists p, s, (a :: u), v.
+        split; [exact Hneq |].
+        split.
+        * eapply Path_cons with (q' := mid); eauto.
+        * split.
+          -- eapply Path_cons with (q' := mid); eauto.
+          -- repeat split; assumption.
+      + exists p, s, [a], w.
+        split; [exact Hneq |].
+        split.
+        * eapply Path_cons with (q' := p); eauto. constructor.
+        * split.
+          -- eapply Path_cons with (q' := s); eauto. constructor.
+          -- split.
+             ++ apply runs_between_positive_path. exact Hp_pos.
+             ++ apply runs_between_positive_path. exact Hs_pos.
   Qed.
 
   Theorem edab_graph_sound :
@@ -782,6 +1172,46 @@ Section InfiniteAmbiguity.
       lia.
   Qed.
 
+  Theorem edab_graph_complete :
+    forall (m : @finite_nfa A),
+      finite_nfa_wf m ->
+      EDA m ->
+      edab_graph m = true.
+  Proof.
+    intros m Hwf Heda.
+    destruct Heda as [q [v [Huseful [_ Hcount]]]].
+    assert (Hq : In q (fnfa_states m)).
+    { eapply finite_nfa_wf_useful_in_states; eauto. }
+    destruct (runs_between_two_sync_paths m q v q Hwf Hq Hcount)
+      as [p [r [u [w [Hdiff [Hqp [Hqr [Hpq Hrq]]]]]]]].
+    assert (Hp : In p (fnfa_states m)).
+    { eapply finite_nfa_wf_path_end_in_states with (p := q) (w := u); eauto. }
+    assert (Hr : In r (fnfa_states m)).
+    { eapply finite_nfa_wf_path_end_in_states with (p := q) (w := u); eauto. }
+    unfold edab_graph.
+    apply existsb_exists.
+    exists q. split; auto.
+    apply andb_true_iff. split.
+    - eapply usefulb_graph_complete; eauto.
+    - apply existsb_exists.
+      exists (p, r). split.
+      + apply state_pair_vertices_complete; assumption.
+      + apply andb_true_iff. split.
+        * apply negb_true_iff.
+          apply fnfa_state_eqb_neq_false. exact Hdiff.
+        * eapply g2_connectedb_complete_paths; simpl; eauto.
+  Qed.
+
+  Theorem edab_graph_iff :
+    forall (m : @finite_nfa A),
+      finite_nfa_wf m ->
+      edab_graph m = true <-> EDA m.
+  Proof.
+    intros m Hwf. split.
+    - apply edab_graph_sound.
+    - now apply edab_graph_complete.
+  Qed.
+
   Lemma state_triple_eqb_sound :
     forall (m : @finite_nfa A) (x y : state_triple m),
       state_triple_eqb m x y = true -> x = y.
@@ -796,6 +1226,45 @@ Section InfiniteAmbiguity.
     unfold triple_first, triple_second, triple_third in *.
     simpl in H1, H2, Hthird.
     subst. reflexivity.
+  Qed.
+
+  Lemma state_triple_eqb_complete :
+    forall (m : @finite_nfa A) (x y : state_triple m),
+      x = y -> state_triple_eqb m x y = true.
+  Proof.
+    intros m [[x1 x2] x3] [[y1 y2] y3] H. inversion H; subst.
+    unfold state_triple_eqb, triple_first, triple_second, triple_third.
+    simpl.
+    rewrite (fnfa_state_eqb_complete m y1 y1 eq_refl).
+    rewrite (fnfa_state_eqb_complete m y2 y2 eq_refl).
+    rewrite (fnfa_state_eqb_complete m y3 y3 eq_refl).
+    reflexivity.
+  Qed.
+
+  Lemma state_triple_vertices_complete :
+    forall (m : @finite_nfa A) p q r,
+      In p (fnfa_states m) ->
+      In q (fnfa_states m) ->
+      In r (fnfa_states m) ->
+      In ((p, q), r) (state_triple_vertices m).
+  Proof.
+    intros m p q r Hp Hq Hr.
+    unfold state_triple_vertices.
+    apply in_concat.
+    exists (concat
+      (map
+        (fun q0 => map (fun r0 => ((p, q0), r0)) (fnfa_states m))
+        (fnfa_states m))).
+    split.
+    - apply in_map_iff.
+      exists p. split; [reflexivity | exact Hp].
+    - apply in_concat.
+      exists (map (fun r0 => ((p, q), r0)) (fnfa_states m)).
+      split.
+      + apply in_map_iff.
+        exists q. split; [reflexivity | exact Hq].
+      + apply in_map_iff.
+        exists r. split; [reflexivity | exact Hr].
   Qed.
 
   Lemma g3_edgeb_sound :
@@ -819,6 +1288,66 @@ Section InfiniteAmbiguity.
       now apply step_to_stateb_sound.
   Qed.
 
+  Lemma g3_edgeb_complete :
+    forall (m : @finite_nfa A) x y a,
+      In a (fnfa_alphabet m) ->
+      In (triple_first m y)
+        (nfa_step (fnfa_base m) (triple_first m x) a) ->
+      In (triple_second m y)
+        (nfa_step (fnfa_base m) (triple_second m x) a) ->
+      In (triple_third m y)
+        (nfa_step (fnfa_base m) (triple_third m x) a) ->
+      g3_edgeb m x y = true.
+  Proof.
+    intros m x y a Ha H1 H2 H3.
+    unfold g3_edgeb.
+    apply existsb_exists.
+    exists a. split; auto.
+    repeat rewrite andb_true_iff.
+    repeat split; now apply step_to_stateb_complete.
+  Qed.
+
+  Lemma state_triple_vertices_sound :
+    forall (m : @finite_nfa A) x,
+      In x (state_triple_vertices m) ->
+      In (triple_first m x) (fnfa_states m) /\
+      In (triple_second m x) (fnfa_states m) /\
+      In (triple_third m x) (fnfa_states m).
+  Proof.
+    intros m [[p q] r] H.
+    unfold state_triple_vertices in H.
+    apply in_concat in H as [qs [Hqs Hr]].
+    apply in_map_iff in Hqs as [p0 [Hqs Hp]].
+    subst qs.
+    apply in_concat in Hr as [rs [Hrs Hr]].
+    apply in_map_iff in Hrs as [q0 [Hrs Hq]].
+    subst rs.
+    apply in_map_iff in Hr as [r0 [Hr Hr0]].
+    inversion Hr; subst.
+    repeat split; assumption.
+  Qed.
+
+  Lemma g3_edgeb_closed :
+    forall (m : @finite_nfa A) x y,
+      finite_nfa_wf m ->
+      In x (state_triple_vertices m) ->
+      g3_edgeb m x y = true ->
+      In y (state_triple_vertices m).
+  Proof.
+    intros m x y Hwf Hx Hedge.
+    destruct (state_triple_vertices_sound m x Hx) as [Hx1 [Hx2 Hx3]].
+    destruct (g3_edgeb_sound m x y Hedge)
+      as [a [_ [Hstep1 [Hstep2 Hstep3]]]].
+    destruct y as [[y1 y2] y3].
+    apply state_triple_vertices_complete.
+    - eapply finite_nfa_wf_step_in_states
+        with (q := triple_first m x) (a := a); eauto.
+    - eapply finite_nfa_wf_step_in_states
+        with (q := triple_second m x) (a := a); eauto.
+    - eapply finite_nfa_wf_step_in_states
+        with (q := triple_third m x) (a := a); eauto.
+  Qed.
+
   Lemma g3_walk_paths :
     forall (m : @finite_nfa A) x y,
       walk (g3_edgeb m) x y ->
@@ -838,6 +1367,68 @@ Section InfiniteAmbiguity.
         as [a [_ [Hstep1 [Hstep2 Hstep3]]]].
       exists (a :: w).
       repeat split; eapply Path_cons; eauto.
+  Qed.
+
+  Lemma g3_paths_walk :
+    forall (m : @finite_nfa A) p1 p2 p3 w q1 q2 q3,
+      finite_nfa_wf m ->
+      In p1 (fnfa_states m) ->
+      In p2 (fnfa_states m) ->
+      In p3 (fnfa_states m) ->
+      finite_delta_star m p1 w q1 ->
+      finite_delta_star m p2 w q2 ->
+      finite_delta_star m p3 w q3 ->
+      walk (g3_edgeb m) ((p1, p2), p3) ((q1, q2), q3).
+  Proof.
+    intros m p1 p2 p3 w q1 q2 q3 Hwf Hp1 Hp2 Hp3 Hpath1.
+    revert p2 p3 q2 q3 Hp2 Hp3.
+    induction Hpath1 as [q1| p1 a p1' w q1 Hstep1 _ IH];
+      intros p2 p3 q2 q3 Hp2 Hp3 Hpath2 Hpath3.
+    - inversion Hpath2; subst.
+      inversion Hpath3; subst.
+      constructor.
+    - inversion Hpath2 as [| p2' a2 p2'' w2 q2' Hstep2 Htail2]; subst.
+      inversion Hpath3 as [| p3' a3 p3'' w3 q3' Hstep3 Htail3]; subst.
+      eapply Walk_step with (y := ((p1', p2''), p3'')).
+      + eapply g3_edgeb_complete.
+        * eapply finite_nfa_wf_step_in_alphabet; eauto.
+        * exact Hstep1.
+        * exact Hstep2.
+        * exact Hstep3.
+      + apply IH.
+        * eapply finite_nfa_wf_step_in_states with (q := p1) (a := a); eauto.
+        * eapply finite_nfa_wf_step_in_states with (q := p2) (a := a); eauto.
+        * eapply finite_nfa_wf_step_in_states with (q := p3) (a := a); eauto.
+        * exact Htail2.
+        * exact Htail3.
+  Qed.
+
+  Lemma g3_reachb_complete_paths :
+    forall (m : @finite_nfa A) x y w,
+      finite_nfa_wf m ->
+      In (triple_first m x) (fnfa_states m) ->
+      In (triple_second m x) (fnfa_states m) ->
+      In (triple_third m x) (fnfa_states m) ->
+      finite_delta_star m (triple_first m x) w (triple_first m y) ->
+      finite_delta_star m (triple_second m x) w (triple_second m y) ->
+      finite_delta_star m (triple_third m x) w (triple_third m y) ->
+      g3_reachb m x y = true.
+  Proof.
+    intros m [[x1 x2] x3] [[y1 y2] y3] w Hwf Hx1 Hx2 Hx3 Hpath1 Hpath2 Hpath3.
+    unfold g3_reachb.
+    eapply (@reachb_complete
+      (state_triple m)
+      (state_triple_eqb m)
+      (fun a b Hab => state_triple_eqb_complete m a b Hab)
+      (state_triple_vertices m)
+      (g3_edgeb m)
+      (length (state_triple_vertices m))
+      ((x1, x2), x3) ((y1, y2), y3)).
+    - apply le_n.
+    - apply state_triple_vertices_complete; assumption.
+    - intros a b Ha Hedge.
+      eapply g3_edgeb_closed; eauto.
+    - eapply g3_paths_walk; eauto.
   Qed.
 
   Theorem idab_graph_sound :
@@ -877,6 +1468,43 @@ Section InfiniteAmbiguity.
     repeat split; assumption.
   Qed.
 
+  Theorem idab_graph_complete :
+    forall (m : @finite_nfa A),
+      finite_nfa_wf m ->
+      IDA m ->
+      idab_graph m = true.
+  Proof.
+    intros m Hwf Hida.
+    destruct Hida as [p [q [v [Hneq [Hup [Huq [Hpp [Hpq Hqq]]]]]]]].
+    assert (Hp : In p (fnfa_states m)).
+    { eapply finite_nfa_wf_useful_in_states; eauto. }
+    assert (Hq : In q (fnfa_states m)).
+    { eapply finite_nfa_wf_useful_in_states; eauto. }
+    unfold idab_graph.
+    apply existsb_exists.
+    exists p. split; auto.
+    apply existsb_exists.
+    exists q. split; auto.
+    repeat rewrite andb_true_iff.
+    repeat split.
+    - apply negb_true_iff.
+      apply fnfa_state_eqb_neq_false.
+      exact Hneq.
+    - eapply usefulb_graph_complete; eauto.
+    - eapply usefulb_graph_complete; eauto.
+    - eapply g3_reachb_complete_paths; simpl; eauto.
+  Qed.
+
+  Theorem idab_graph_iff :
+    forall (m : @finite_nfa A),
+      finite_nfa_wf m ->
+      idab_graph m = true <-> IDA m.
+  Proof.
+    intros m Hwf. split.
+    - apply idab_graph_sound.
+    - now apply idab_graph_complete.
+  Qed.
+
   Theorem degree_growthb_exponential_sound :
     forall (m : @finite_nfa A),
       degree_growthb m = ExponentialAmbiguity -> EDA m.
@@ -886,6 +1514,59 @@ Section InfiniteAmbiguity.
     destruct (edab_graph m) eqn:Heda.
     - now apply edab_graph_sound.
     - destruct (ida_degree_lower_boundb m); discriminate.
+  Qed.
+
+  Theorem degree_growthb_exponential_complete :
+    forall (m : @finite_nfa A),
+      finite_nfa_wf m ->
+      EDA m ->
+      degree_growthb m = ExponentialAmbiguity.
+  Proof.
+    intros m Hwf Heda.
+    unfold degree_growthb.
+    rewrite (edab_graph_complete m Hwf Heda).
+    reflexivity.
+  Qed.
+
+  Theorem degree_growthb_exponential_iff :
+    forall (m : @finite_nfa A),
+      finite_nfa_wf m ->
+      degree_growthb m = ExponentialAmbiguity <-> EDA m.
+  Proof.
+    intros m Hwf. split.
+    - apply degree_growthb_exponential_sound.
+    - now apply degree_growthb_exponential_complete.
+  Qed.
+
+  Definition degree_growthb_spec
+      (m : @finite_nfa A)
+      (g : ambiguity_growth) : Prop :=
+    match g with
+    | ExponentialAmbiguity => EDA m
+    | FiniteAmbiguity =>
+        ~ EDA m /\ ida_degree_lower_boundb m = 0
+    | PolynomialAmbiguity d =>
+        ~ EDA m /\ ida_degree_lower_boundb m = d /\ 0 < d
+    end.
+
+  Theorem degree_growthb_correct :
+    forall (m : @finite_nfa A),
+      finite_nfa_wf m ->
+      degree_growthb_spec m (degree_growthb m).
+  Proof.
+    intros m Hwf.
+    unfold degree_growthb, degree_growthb_spec.
+    destruct (edab_graph m) eqn:Heda.
+    - now apply edab_graph_sound.
+    - destruct (ida_degree_lower_boundb m) as [| d]; simpl.
+      + split; auto.
+        intros Hcontra.
+        pose proof (edab_graph_complete m Hwf Hcontra) as Heda_true.
+        rewrite Heda in Heda_true. discriminate.
+      + repeat split; auto; try lia.
+        intros Hcontra.
+        pose proof (edab_graph_complete m Hwf Hcontra) as Heda_true.
+        rewrite Heda in Heda_true. discriminate.
   Qed.
 
   Lemma lists_of_length_length :

@@ -1,13 +1,13 @@
 -Q . PositionAutomata
-GraphAlgorithms.v
+Syntax.v
+Sets.v
+PositionAutomaton.v
+KleeneSemantics.v
 DegreeofAmbiguity.v
+GraphAlgorithms.v
 DegreeofInfiniteAmbiguity.v
 Equivalence.v
-KleeneSemantics.v
-PositionAutomaton.v
 PositionCorrectness.v
 RegexReDoS.v
 Examples.v
-Sets.v
-Syntax.v
 # -Q ../_build/default Linden

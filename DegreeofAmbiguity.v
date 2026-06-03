@@ -91,6 +91,35 @@ Proof.
   now apply in_map.
 Qed.
 
+Lemma sum_map_ge_two_cases :
+  forall {B : Type} (f : B -> nat) xs,
+    NoDup xs ->
+    2 <= sum_nats (map f xs) ->
+    (exists x, In x xs /\ 2 <= f x) \/
+    (exists x y,
+      In x xs /\ In y xs /\ x <> y /\ 0 < f x /\ 0 < f y).
+Proof.
+  intros B f xs.
+  induction xs as [| x xs IH]; simpl; intros Hnodup Hsum.
+  - lia.
+  - inversion Hnodup as [| z zs Hnotin Hnodup']; subst.
+    destruct (f x) as [| n] eqn:Hfx.
+    + assert (Htail : 2 <= sum_nats (map f xs)) by lia.
+      destruct (IH Hnodup' Htail) as
+        [[y [Hy Hfy]] | [y [z [Hy [Hz [Hneq [Hfy Hfz]]]]]]].
+      * left. exists y. split; simpl; auto.
+      * right. exists y, z. repeat split; simpl; auto.
+    + destruct n as [| n].
+      * right.
+        assert (Htail_pos : 0 < sum_nats (map f xs)) by lia.
+        apply sum_map_pos_In in Htail_pos as [y [Hy Hfy]].
+        exists x, y.
+        repeat split; simpl; auto.
+        -- intros Heq. subst. contradiction.
+        -- rewrite Hfx. lia.
+      * left. exists x. split; simpl; auto. rewrite Hfx. lia.
+Qed.
+
 Lemma sum_map_mul_le :
   forall {B : Type} (f g : B -> nat) c xs,
     (forall x, In x xs -> f x * c <= g x) ->
@@ -190,6 +219,35 @@ Section NFA.
         NoDup (nfa_step (fnfa_base m) q a)
   }.
 
+  Definition fnfa_state_inb
+      (m : finite_nfa)
+      (q : nfa_state (fnfa_base m)) : bool :=
+    existsb (fnfa_state_eqb m q) (fnfa_states m).
+
+  Lemma fnfa_state_inb_sound :
+    forall (m : finite_nfa) q,
+      fnfa_state_inb m q = true ->
+      In q (fnfa_states m).
+  Proof.
+    intros m q H.
+    unfold fnfa_state_inb in H.
+    apply existsb_exists in H as [q' [Hin Heq]].
+    apply fnfa_state_eqb_sound in Heq.
+    now subst.
+  Qed.
+
+  Lemma fnfa_state_inb_complete :
+    forall (m : finite_nfa) q,
+      In q (fnfa_states m) ->
+      fnfa_state_inb m q = true.
+  Proof.
+    intros m q Hin.
+    unfold fnfa_state_inb.
+    apply existsb_exists.
+    exists q. split; auto.
+    apply fnfa_state_eqb_complete. reflexivity.
+  Qed.
+
   Inductive path_from (m : nfa)
       : nfa_state m -> list A -> nfa_state m -> Prop :=
   | Path_nil :
@@ -236,6 +294,95 @@ Section NFA.
     intros m p u q v r Hleft Hright.
     induction Hleft; simpl; auto.
     eapply Path_cons; eauto.
+  Qed.
+
+  Lemma finite_nfa_wf_start_in_states :
+    forall (m : finite_nfa) q,
+      finite_nfa_wf m ->
+      In q (nfa_start (fnfa_base m)) ->
+      In q (fnfa_states m).
+  Proof.
+    intros m q Hwf Hstart.
+    destruct Hwf as [_ Hstarts _ _ _].
+    now apply Hstarts.
+  Qed.
+
+  Lemma finite_nfa_wf_step_in_states :
+    forall (m : finite_nfa) q a q',
+      finite_nfa_wf m ->
+      In q (fnfa_states m) ->
+      In q' (nfa_step (fnfa_base m) q a) ->
+      In q' (fnfa_states m).
+  Proof.
+    intros m q a q' Hwf Hq Hstep.
+    destruct Hwf as [_ _ Hsteps _ _].
+    eapply Hsteps; eauto.
+  Qed.
+
+  Lemma finite_nfa_wf_step_in_alphabet :
+    forall (m : finite_nfa) q a q',
+      finite_nfa_wf m ->
+      In q (fnfa_states m) ->
+      In q' (nfa_step (fnfa_base m) q a) ->
+      In a (fnfa_alphabet m).
+  Proof.
+    intros m q a q' Hwf Hq Hstep.
+    destruct Hwf as [_ _ _ Halphabet _].
+    eapply Halphabet; eauto.
+  Qed.
+
+  Lemma finite_nfa_wf_step_targets_NoDup :
+    forall (m : finite_nfa) q a,
+      finite_nfa_wf m ->
+      In q (fnfa_states m) ->
+      NoDup (nfa_step (fnfa_base m) q a).
+  Proof.
+    intros m q a Hwf Hq.
+    destruct Hwf as [_ _ _ _ Hnodup].
+    now apply Hnodup.
+  Qed.
+
+  Lemma finite_nfa_wf_path_end_in_states :
+    forall (m : finite_nfa) p w q,
+      finite_nfa_wf m ->
+      In p (fnfa_states m) ->
+      path_from (fnfa_base m) p w q ->
+      In q (fnfa_states m).
+  Proof.
+    intros m p w q Hwf Hpin Hpath.
+    induction Hpath as [q| q a q' w q'' Hstep _ IH].
+    - exact Hpin.
+    - apply IH.
+      eapply finite_nfa_wf_step_in_states; eauto.
+  Qed.
+
+  Lemma finite_nfa_wf_path_symbols_in_alphabet :
+    forall (m : finite_nfa) p w q,
+      finite_nfa_wf m ->
+      In p (fnfa_states m) ->
+      path_from (fnfa_base m) p w q ->
+      Forall (fun a => In a (fnfa_alphabet m)) w.
+  Proof.
+    intros m p w q Hwf Hpin Hpath.
+    induction Hpath as [q| q a q' w q'' Hstep _ IH].
+    - constructor.
+    - constructor.
+      + eapply finite_nfa_wf_step_in_alphabet; eauto.
+      + apply IH.
+        eapply finite_nfa_wf_step_in_states; eauto.
+  Qed.
+
+  Lemma finite_nfa_wf_useful_in_states :
+    forall (m : finite_nfa) q,
+      finite_nfa_wf m ->
+      useful_state (fnfa_base m) q ->
+      In q (fnfa_states m).
+  Proof.
+    intros m q Hwf Huseful.
+    destruct Huseful as [q0 [qf [w1 [w2
+      [Hstart [Hpath_in [_ Hfinal]]]]]]].
+    eapply finite_nfa_wf_path_end_in_states; eauto.
+    eapply finite_nfa_wf_start_in_states; eauto.
   Qed.
 
   Fixpoint accepting_runs_from
